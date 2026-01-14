@@ -457,7 +457,7 @@ def get_index_html():
                     <div class="form-group">
                         <label>编程语言</label>
                         <select id="language">
-                            <option value="auto">自动检测</option>
+                            <option value="">请选择语言</option>
                             <option value="python">Python</option>
                             <option value="java">Java</option>
                             <option value="go">Go</option>
@@ -560,6 +560,13 @@ def get_index_html():
             const language = document.getElementById('language').value;
             const staticAnalysis = document.getElementById('opt-static').checked;
             const dynamicAnalysis = document.getElementById('opt-dynamic').checked;
+            
+            // 验证语言选择
+            if (codeTab && !language) {
+                loading.classList.remove('active');
+                resultsContent.innerHTML = `<div class="finding critical"><div class="finding-title">请选择语言</div></div>`;
+                return;
+            }
             
             let scanType = 'all';
             if (staticAnalysis && !dynamicAnalysis) scanType = 'static';
