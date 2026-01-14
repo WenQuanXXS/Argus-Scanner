@@ -8,6 +8,7 @@ import os
 import yaml
 from typing import Dict, List, Any, Optional, Set
 from pathlib import Path
+import math
 
 from utils.helpers import read_file_content, detect_language, get_line_content
 from utils.logger import get_logger
@@ -70,9 +71,9 @@ class PatternMatcher:
                 self.logger.error(f"警告：找不到静态分析规则文件！路径: {rules_path.absolute()}")
                 
         except Exception as e:
-            self.logger.error(f"加载规则失败: {e}")
+            self.logger.error(f"规则加载失败: {e}")
             
-        # 预编译正则
+        # 预编译正则表达式
         for rule in rules:
             if 'patterns' in rule:
                 for pat in rule['patterns']:
@@ -101,9 +102,9 @@ class PatternMatcher:
                     findings.extend(file_findings)
                     files_scanned += 1
                 else:
-                    # 如果 AST 解析失败，是否回退到文本匹配？
-                    # 为了低误报，我们暂时只记录错误，不回退。
-                    # 或者如果文件很小，可以尝试极简的文本搜索，但要加上注释过滤逻辑(TODO)
+                    # 如果 AST 解析失败，考虑是否需要回退到基础的文本匹配？
+                    # 为了保证低误报，我们暂时只记录错误，不回退。
+                    # 如果文件较小，可以尝试添加带有注释过滤逻辑的文本搜索 (TODO)
                     pass
                     
             except Exception as e:
@@ -145,12 +146,12 @@ class PatternMatcher:
         node_type = node.type
         known_types = self.node_types.get(language, {})
         
-        # 1. 检查字符串 (Secrets, IPs)
+        # 1. 检查字符串 (敏感信息、IP 地址等)
         if node_type in known_types.get('string', []):
             text = self._get_node_text(node, source_bytes)
             self._check_rules(text, 'string', language, file_path, node.start_point[0] + 1, findings)
             
-        # 2. 检查函数调用 (Backdoors, Dangerous APIs)
+        # 2. 检查函数调用 (后门、危险 API 等)
         elif node_type in known_types.get('call', []):
             text = self._get_node_text(node, source_bytes)
             self._check_rules(text, 'call', language, file_path, node.start_point[0] + 1, findings)
@@ -178,9 +179,27 @@ class PatternMatcher:
                 if regex:
                     match = regex.search(text)
                     if match:
+                        # [FPR Fix] ID: BACKDOOR-003 (Base64) - Check Shannon Entropy
+                        if rule['id'] == 'BACKDOOR-003':
+                            entropy = self._calculate_entropy(text)
+                            # Threshold 4.5 is empirical for Base64 encoded code blocks
+                            if entropy < 4.5:
+                                continue 
+                        
                         # 发现问题
                         self._add_finding(findings, rule, file_path, line_number, text)
                         return
+
+    def _calculate_entropy(self, text: str) -> float:
+        """计算字符串的香农熵 (Shannon Entropy)"""
+        if not text:
+            return 0.0
+        entropy = 0
+        for x in range(256):
+            p_x = float(text.count(chr(x))) / len(text)
+            if p_x > 0:
+                entropy += - p_x * math.log(p_x, 2)
+        return entropy
 
     def _get_node_text(self, node, source_bytes):
         """获取节点文本"""
@@ -209,6 +228,6 @@ class PatternMatcher:
             'file': file_path,
             'line': line_number,
             'code_snippet': code_snippet,
-            'evidence': evidence, # 具体的匹配内容
+            'evidence': evidence, # 具体匹配到的证据内容
             'analyzer': 'SmartPatternMatcher' # 标记为智能分析器
         })

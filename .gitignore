@@ -18,11 +18,14 @@ pip-delete-this-directory.txt
 # Project Specific
 reports/
 reports_*/
+report_*/
 logs/
 *.log
+docs/html_reports/
 
 # Test Artifacts & Large Datasets
 Ruoyi-master/
+test_references/
 temp_debug.java
 
 # Development Utility Scripts
@@ -34,3 +37,5 @@ analyze_*.py
 clean_report.py
 json_to_html.py
 malicious_test.py
+run_perf_tests.py
+test_cases/

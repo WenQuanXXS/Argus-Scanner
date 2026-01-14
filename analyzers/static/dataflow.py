@@ -381,11 +381,11 @@ class TreeSitterDataFlowAnalyzer:
         
     def _analyze_node(self, node):
         """递归分析节点"""
-        # 处理赋值 (Source -> Variable)
+        # 处理赋值 (污点源 -> 变量)
         if self._is_assignment(node):
             self._handle_assignment(node)
             
-        # 处理调用 (Variable -> Sink)
+        # 处理调用 (变量 -> 汇聚点)
         if self._is_call(node):
             self._check_sink(node)
             

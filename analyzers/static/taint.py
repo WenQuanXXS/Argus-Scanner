@@ -314,7 +314,7 @@ class TaintAnalyzer:
                 self.sensitive_sinks.get(language, {}),
                 self.sanitizers.get(language, [])
             )
-            # DEBUG PRINT
+            # 调试打印
             # print(f"DEBUG: Analyzing {file_path} with sources={list(analyzer.sources.keys())} sinks={list(analyzer.sinks.keys())}")
             findings.extend(analyzer.analyze(tree.root_node))
             # print(f"DEBUG: Findings: {len(findings)} TaintedVars: {analyzer.tainted_vars}")
@@ -344,7 +344,7 @@ class PythonTaintVisitor(ast.NodeVisitor):
         old_function = self.current_function
         self.current_function = node.name
         
-        # 函数参数可能是污点源 (启发式)
+        # 函数参数可能是污点源 (启发式策略)
         suspicious_args = ['input', 'cmd', 'command', 'sql', 'query', 'url', 'path', 'file', 'content', 'data', 'pattern']
         for arg in node.args.args:
             arg_name = arg.arg if hasattr(arg, 'arg') else str(arg)
@@ -358,7 +358,7 @@ class PythonTaintVisitor(ast.NodeVisitor):
             if is_suspicious:
                  self.tainted_vars[arg_name] = TaintedValue(
                     name=arg_name,
-                    source=f"Function Argument ({arg_name})",
+                    source=f"函数参数 ({arg_name})",
                     source_line=node.lineno,
                     propagation_path=[node.lineno]
                 )
@@ -430,7 +430,7 @@ class PythonTaintVisitor(ast.NodeVisitor):
                 # 检查主体是否在 attribute sources 中
                 for attr in self.sources.get('attributes', []):
                     if attr in attr_name:
-                         return f"{attr}.{node.func.attr}" # e.g. request.args.get
+                         return f"{attr}.{node.func.attr}" # 例如: request.args.get
 
         elif isinstance(node, ast.Attribute):
             attr_name = self._get_full_attr_name(node)
@@ -587,11 +587,11 @@ class TreeSitterTaintAnalyzer:
     def _visit(self, node):
         node_type = node.type
         
-        # 1. 检查赋值 (Taint Propagation)
+        # 1. 检查赋值 (污点传播)
         if self._match_type(node_type, 'assignment'):
             self._handle_assignment(node)
             
-        # 2. 检查调用 (Taint Sink & Source)
+        # 2. 检查调用 (污点汇聚点 & 污点源)
         if self._match_type(node_type, 'call'):
             self._handle_call(node)
             
@@ -605,7 +605,7 @@ class TreeSitterTaintAnalyzer:
         
         if lhs_name and rhs_node:
             taint_source = self._check_taint(rhs_node)
-            # print(f"DEBUG: Assignment {lhs_name} = {rhs_node.text.decode('utf-8')}, TaintSource: {taint_source}")
+            # 调试打印: print(f"DEBUG: Assignment {lhs_name} = {rhs_node.text.decode('utf-8')}, TaintSource: {taint_source}")
             if taint_source:
                 self.tainted_vars[lhs_name] = {
                     'source': taint_source['source'],
@@ -623,10 +623,10 @@ class TreeSitterTaintAnalyzer:
             sink_category = self._check_sink(call_text)
             if sink_category:
                 args = self._extract_arguments(node)
-                # print(f"DEBUG: Call {call_text} Sink={sink_category} Args={args}")
+                # 调试打印: print(f"DEBUG: Call {call_text} Sink={sink_category} Args={args}")
                 for arg in args:
                     if arg in self.tainted_vars:
-                        # Found a path!
+                        # 找到传播路径!
                         self._add_finding(node, sink_category, self.tainted_vars[arg])
         except:
              pass
@@ -636,7 +636,7 @@ class TreeSitterTaintAnalyzer:
         try:
             text = node.text.decode('utf-8', errors='ignore')
             
-            # 1. 直接匹配 Source
+            # 1. 直接匹配污点源
             for src_cat, src_list in self.sources.items():
                 if isinstance(src_list, list):
                     for src in src_list:
@@ -645,10 +645,10 @@ class TreeSitterTaintAnalyzer:
                             
             # 2. 检查是否使用已污染变量
             for var, info in self.tainted_vars.items():
-                # Fix regex to use simple string boundary if \b is problematic
+                # 如果 \b 存在问题，则使用简单的字符串边界正则
                 if re.search(rf'\b{re.escape(var)}\b', text):
                      return info
-                # Also try without boundary for exact match if text IS variable
+                # 如果文本本身就是变量，直接尝试完全匹配
                 if text == var:
                      return info
         except:
@@ -701,7 +701,7 @@ class TreeSitterTaintAnalyzer:
                     if child.type == self.node_mapping.get('identifier'):
                         args.append(child.text.decode('utf-8', errors='ignore'))
             else:
-                # 降级到文本提取 (改进只有最后一个括号的内容)
+                # 降级到文本提取 (改进：仅获取最后一个括号的内容)
                 text = call_node.text.decode('utf-8', errors='ignore')
                 match = re.search(r'\(([^()]*)\)$', text) # 匹配最后一个括号内的内容
                 if match:
@@ -722,6 +722,7 @@ class TreeSitterTaintAnalyzer:
 
     def _add_finding(self, node, category, source_info):
         line = node.start_point[0] + 1
+        # 找到传播路径!
         category_cn = {
             'code_execution': '代码执行',
             'command_execution': '命令执行',

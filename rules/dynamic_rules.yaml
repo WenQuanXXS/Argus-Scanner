@@ -75,3 +75,17 @@ rules:
     description: "程序尝试使用 ptrace 操作其他进程的内存或执行流，这是典型的进程注入行为。"
     severity: CRITICAL
     category: memory
+
+  - id: MEM-004
+    title: "无文件执行尝试 (memfd_create)"
+    pattern: 'memfd_create\("(?P<name>[^"]+)"'
+    description: "程序尝试在内存中创建匿名文件。这是无文件攻击（Fileless Attack）的典型特征，用以绕过磁盘扫描。"
+    severity: HIGH
+    category: memory
+
+  - id: FS-003
+    title: "异常文件描述符访问 (proc/fd)"
+    pattern: 'openat\(.*"/proc/self/fd/\d+"'
+    description: "程序尝试直接通过 /proc/self/fd 访问文件描述符，可能在尝试读取或执行隐藏在内存中的匿名文件。"
+    severity: HIGH
+    category: filesystem

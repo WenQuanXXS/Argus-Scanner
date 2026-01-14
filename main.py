@@ -178,9 +178,9 @@ def print_summary(results):
     
     total = critical + high + medium + low
     if total > 0:
-        print(f"\n  {Fore.RED}⚠ 共发现 {total} 个安全问题{Style.RESET_ALL}")
+        print(f"\n  {Fore.RED}[!] 共发现 {total} 个安全问题{Style.RESET_ALL}")
     else:
-        print(f"\n  {Fore.GREEN}✓ 未发现安全问题{Style.RESET_ALL}")
+        print(f"\n  {Fore.GREEN}[OK] 未发现安全问题{Style.RESET_ALL}")
 
 if __name__ == '__main__':
     main()

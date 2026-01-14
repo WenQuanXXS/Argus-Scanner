@@ -13,10 +13,10 @@ from pathlib import Path
 from utils.helpers import read_file_content
 from utils.logger import get_logger
 
-# 尝试导入requests，如果失败则使用urllib
+# 尝试导入 requests，如果失败则回退使用 urllib
 try:
     import requests
-    # 禁用 urllib3 的 InsecureRequestWarning，如果需要的話
+    # 如有需要，可以禁用 urllib3 的 InsecureRequestWarning
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     HAS_REQUESTS = True
@@ -146,8 +146,8 @@ class DependencyChecker:
                         if response.status_code == 200:
                             results = response.json().get('results', [])
                     except Exception as req_err:
-                        self.logger.warning(f"OSV Request Error: {req_err}. Switching to urllib.")
-                        # Fallback to urllib if requests fails
+                        self.logger.warning(f"OSV 请求错误: {req_err}。正在切换至 urllib。")
+                        # 如果 requests 失败且安装了 requests，则尝试回退到 urllib
                         req = urllib.request.Request(
                             self.osv_batch_url,
                             data=json.dumps(payload).encode(),
@@ -224,7 +224,7 @@ class DependencyChecker:
             'analyzer': 'OSV-Scanner'
         }
 
-    # ================= 解析器逻辑 =================
+    # ================= 依赖解析器逻辑 =================
 
     def _parse_requirements_txt(self, file_path: str) -> List[Dict]:
         """解析requirements.txt"""
@@ -234,8 +234,8 @@ class DependencyChecker:
             for line in content.split('\n'):
                 line = line.strip()
                 if line and not line.startswith('#') and not line.startswith('-'):
-                    # 匹配 name==version (简单版)
-                    # 处理 requests==2.20.0
+                    # 简单匹配 name==version 格式
+                    # 处理例如 requests==2.20.0
                     if '==' in line:
                         parts = line.split('==')
                         name = parts[0].strip().lower()

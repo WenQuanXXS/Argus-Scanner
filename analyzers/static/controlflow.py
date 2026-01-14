@@ -17,7 +17,7 @@ from core.ast_engine import ASTEngine
 class CFGNode:
     """控制流图节点"""
     id: int
-    type: str  # 'entry', 'exit', 'block', 'branch', 'loop'
+    type: str  # 'entry' (入口), 'exit' (出口), 'block' (代码块), 'branch' (分支), 'loop' (循环)
     lineno: int
     code: str
     successors: List[int] = field(default_factory=list)
@@ -47,7 +47,7 @@ class ControlFlowAnalyzer:
             'go': {
                 'function': ['function_declaration', 'method_declaration', 'func_literal'],
                 'if': 'if_statement',
-                'loop': ['for_statement'], # Go only has for
+                'loop': ['for_statement'], # Go 只有 for 循环
                 'return': 'return_statement',
                 'call': 'call_expression',
                 'goto': 'goto_statement'
@@ -290,7 +290,7 @@ class PythonCFGAnalyzer(ast.NodeVisitor):
                     'CFG-INFINITE-LOOP',
                     '可能的无限循环',
                     'medium',
-                    '检测到while True循环且没有break语句，可能是死循环或后门等待循环'
+                    '检测到 while True 循环且没有 break 语句，可能是死循环或后门等待循环'
                 )
         
         self.generic_visit(node)
@@ -478,19 +478,19 @@ class TreeSitterCFGAnalyzer:
         return current_type == target
         
     def _check_suspicious_condition(self, node):
-        """检查可疑的条件判断 (Tree-sitter Generic)"""
+        """检查可疑的条件判断 (Tree-sitter 通用)"""
         # 获取节点文本
         try:
             text = node.text.decode('utf-8', errors='ignore')
             
             # 排除模式列表
             exclude_patterns = [
-                r'!=\s*null', r'==\s*null',  # Null checks (Java/C++)
-                r'!=\s*nil', r'==\s*nil',    # Nil checks (Go)
-                r'\.exists\(\)', r'\.canRead\(\)', r'\.canWrite\(\)', # File checks
-                r'\.length\(\)', r'\.size\(\)', # Length checks
-                r'\.equals\(".*?"\)', # Simple string equals
-                r'logger\.', r'System\.out\.', # Logging
+                r'!=\s*null', r'==\s*null',  # 空检查 (Java/C++)
+                r'!=\s*nil', r'==\s*nil',    # 空检查 (Go)
+                r'\.exists\(\)', r'\.canRead\(\)', r'\.canWrite\(\)', # 文件检查
+                r'\.length\(\)', r'\.size\(\)', # 长度检查
+                r'\.equals\(".*?"\)', # 简单字符串相等判断
+                r'logger\.', r'System\.out\.', # 日志输出
             ]
             
             # 检查是否有长字符串硬编码 (提高阈值到 40)

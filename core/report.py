@@ -56,12 +56,49 @@ class ReportGenerator:
     
     def _generate_html(self, results: Dict, output_dir: str, base_name: str) -> str:
         """生成HTML报告"""
-        # 强制重新计算统计数据，确保与发现列表一致
+        # 提取发现列表
         findings = results.get('findings', [])
-        by_severity = {
-            'critical': 0, 'high': 0, 'medium': 0, 'low': 0
-        }
         
+        # 初始化统计数据
+        by_severity = {
+            'critical': 0,
+            'high': 0,
+            'medium': 0,
+            'low': 0
+        }
+
+        # 强制重新计算统计数据，确保与发现列表一致
+        # 1. 静态与动态关联分析 (Correlation Engine)
+        # 寻找是否存在“静态预警 -> 动态行为”的因果链
+        correlation_findings = []
+        static_intents = [f for f in findings if f.get('type') == 'static' and 'memory' in f.get('category', '').lower()]
+        dynamic_behaviors = [f for f in findings if f.get('type') == 'dynamic' and 'memory' in f.get('category', '').lower()]
+        
+        correlated_ids = set()
+        for s in static_intents:
+            for d in dynamic_behaviors:
+                # 关联条件：同一文件，或者动态行为印证了静态意图
+                if s.get('file') == d.get('file') or d.get('analyzer') == 'FalcoLiteMonitor':
+                    # 发现强关联
+                    cid = f"CORR-{s.get('id')}-{d.get('id')}"
+                    if cid not in correlated_ids:
+                        correlation_findings.append({
+                            'id': 'ATTACK-CHAIN-001',
+                            'title': '【确认攻击】内存注入行为链',
+                            'severity': 'CRITICAL',
+                            'severity_label': '严重',
+                            'category': '威胁建模',
+                            'type': 'correlation',
+                            'description': f"系统检测到完整的攻击演化链：静态发现疑似恶意意图 ({s.get('title')})，且运行时捕捉到对应的危险行为 ({d.get('title')})。这高度疑似一次内存注入或无文件代码执行攻击。",
+                            'evidence': f"关联路径: {s.get('title')} -> {d.get('title')}",
+                            'recommendation': "立即封禁该应用进程，并对手法进行深入逆向分析。该行为符合无文件攻击特征。",
+                            'analyzer': 'CorrelationEngine'
+                        })
+                        correlated_ids.add(cid)
+        
+        # 将关联结果加入列表
+        findings.extend(correlation_findings)
+
         # 归一化处理
         normalized_findings = []
         category_map = {
@@ -75,7 +112,10 @@ class ReportGenerator:
             'vulnerability': '安全漏洞',
             'taint_analysis': '污点分析',
             'controlflow': '控制流分析',
-            'dataflow': '数据流分析'
+            'dataflow': '数据流分析',
+            'memory_static': '内存安全(静态)',
+            'memory': '内存行为(动态)',
+            'threat_correlation': '威胁关联分析'
         }
         analyzer_map = {
             'PatternMatcher': '特征匹配分析器',
@@ -87,29 +127,42 @@ class ReportGenerator:
             'TaintAnalyzer': '污点传播分析器',
             'DataFlowAnalyzer': '数据流分析器',
             'ControlFlowAnalyzer': '控制流分析器',
-            'DependencyAnalyzer': '依赖分析器'
+            'DependencyAnalyzer': '依赖分析器',
+            'StaticMemoryAnalyzer': '内存语义分析器',
+            'CorrelationEngine': '威胁关联引擎'
         }
 
-        static_analyzers = ['PatternMatcher', 'SmartPatternMatcher', 'TaintAnalyzer', 'DataFlowAnalyzer', 'ControlFlowAnalyzer', 'DependencyAnalyzer']
+        static_analyzers = ['PatternMatcher', 'SmartPatternMatcher', 'TaintAnalyzer', 'DataFlowAnalyzer', 'ControlFlowAnalyzer', 'DependencyAnalyzer', 'StaticMemoryAnalyzer']
         
         for f in findings:
             # 汉化分类
             cat = f.get('category', 'unknown')
-            f['category'] = category_map.get(cat, cat)
+            f['category_cn'] = category_map.get(cat, cat)
             
             # 汉化分析器名称
             original_ana = f.get('analyzer', 'unknown')
-            # 统一分析器标识，有些地方可能已经传了中文，我们要识别出来归类
             ana_id = original_ana
             for k, v in analyzer_map.items():
                 if original_ana == v:
                     ana_id = k
                     break
             
-            f['type'] = 'static' if ana_id in static_analyzers else 'dynamic'
-            f['analyzer'] = analyzer_map.get(ana_id, original_ana)
+            # 确定类型标签
+            if f.get('type') == 'correlation':
+                f['type_label'] = '关联分析'
+                f['type_class'] = 'correlation'
+            elif ana_id in static_analyzers:
+                f['type'] = 'static'
+                f['type_label'] = '静态模式'
+                f['type_class'] = 'static'
+            else:
+                f['type'] = 'dynamic'
+                f['type_label'] = '动态监控'
+                f['type_class'] = 'dynamic'
+                
+            f['analyzer_cn'] = analyzer_map.get(ana_id, original_ana)
 
-            # 自动补全代码片段 (针对 NetworkMonitor 等混合型分析器)
+            # 自动补全代码片段
             if not f.get('code_snippet') and f.get('file') and f.get('line'):
                 try:
                     context = get_line_content(f['file'], f['line'], 3)
@@ -122,9 +175,9 @@ class ReportGenerator:
                     pass
 
             # 确保 severity 字段存在且统一
-            sev = f.get('severity', 'LOW').lower()
+            sev = str(f.get('severity', 'LOW')).lower()
             if sev not in by_severity:
-                sev = 'low' # fallback
+                sev = 'low'
             by_severity[sev] += 1
             f['severity'] = sev.upper()
             f['severity_label'] = {'critical': '严重', 'high': '高危', 'medium': '中危', 'low': '低危'}.get(sev, sev.upper())
@@ -135,19 +188,18 @@ class ReportGenerator:
         summary['by_severity'] = by_severity
         summary['total_findings'] = len(normalized_findings)
         
-        # 更新 results 中的 findings，确保后续渲染使用归一化后的数据
+        # 更新 results 中的 findings
         results['findings'] = normalized_findings
         results['summary'] = summary
 
         html_template = self._get_html_template()
         
-        # 渲染模板 - 启用自动转义以防止HTML注入
         from jinja2 import Environment
         env = Environment(autoescape=True)
         template = env.from_string(html_template)
         
         html_content = template.render(
-            title=f"Argus-Scanner 安全扫描报告",
+            title=f"Argus-Scanner 增强型安全报告",
             target=results.get('target', 'Unknown'),
             scan_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             scan_time=results.get('scan_time', 0),
@@ -226,9 +278,11 @@ class ReportGenerator:
         .type-tag { padding: 4px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800; }
         .type-static { background: #dbeafe; color: #1e40af; }
         .type-dynamic { background: #fee2e2; color: #991b1b; }
+        .type-correlation { background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; }
         
         .severity-badge { padding: 4px 12px; border-radius: 20px; font-size: 0.7rem; font-weight: 800; }
-        .severity-badge.critical { background: #ef4444; color: white; }
+        .severity-badge.critical { background: #ef4444; color: white; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
         .severity-badge.high { background: #f97316; color: white; }
         .severity-badge.medium { background: #facc15; color: #854d0e; }
         .severity-badge.low { background: #22d3ee; color: #164e63; }
@@ -237,9 +291,10 @@ class ReportGenerator:
         .meta-item b { color: #475569; }
 
         .finding-desc { margin-bottom: 20px; color: #334155; font-size: 0.95rem; }
+        .finding.type-correlation { border: 2px solid #f59e0b; background: #fffdf5; }
         
         .finding-code { background: #0f172a; border-radius: 12px; padding: 20px; margin-bottom: 20px; color: #e2e8f0; font-family: 'Fira Code', monospace; font-size: 0.85rem; overflow-x: auto; border: 1px solid #1e293b; }
-        .finding-evidence { background: #f1f5f9; padding: 16px; border-radius: 10px; font-size: 0.85rem; border-left: 4px solid #cbd5e1; margin-bottom: 20px; white-space: pre-wrap; font-family: monospace; }
+        .finding-evidence { background: #f1f5f9; padding: 16px; border-radius: 10px; font-size: 0.85rem; border-left: 4px solid #3b82f6; margin-bottom: 20px; white-space: pre-wrap; font-family: monospace; }
         
         .recommendation { background: #f0fdf4; border: 1px solid #dcfce7; padding: 16px 20px; border-radius: 10px; color: #166534; font-size: 0.9rem; display: flex; gap: 12px; align-items: center; }
         
@@ -255,7 +310,12 @@ class ReportGenerator:
 <body>
     <div class="container fade-in">
         <div class="header">
-            <h1>{{ title }}</h1>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h1>{{ title }}</h1>
+                <div style="background:rgba(255,255,255,0.1); padding:8px 16px; border-radius:10px; font-size:0.8rem;">
+                    版本: v2.0 (AST+Correlation Enabled)
+                </div>
+            </div>
             <div class="meta">
                 <span>目标: <code>{{ target }}</code></span>
                 <span>时间: {{ scan_date }}</span>
@@ -265,10 +325,10 @@ class ReportGenerator:
         </div>
 
         <div class="alert-banner">
-            <div style="font-size: 1.5rem;">⚠️</div>
+            <div style="font-size: 1.5rem;">🛡️</div>
             <div class="alert-content">
-                <strong>显示说明：动态执行分析</strong>
-                红色“动态”标签代表运行时捕获的行为。由于这些行为是在程序执行期间触发的，可能无法自动关联到具体的源代码行号。建议参考“运行时证据”字段。
+                <strong>引擎说明：静态-动态协同分析</strong>
+                本报告已集成 AST 语义分析与运行时行为关联。红色“动态”标签代表行为捕捉，黄色“关联分析”代表经实证的攻击链。
             </div>
         </div>
 
@@ -316,6 +376,7 @@ class ReportGenerator:
                         <option value="all">所有类型</option>
                         <option value="static">静态模式</option>
                         <option value="dynamic">动态监控</option>
+                        <option value="correlation">行为关联</option>
                     </select>
                 </div>
 
@@ -340,31 +401,31 @@ class ReportGenerator:
             <div class="findings-header">扫描项列表</div>
             <div id="findingsList">
                 {% for finding in findings %}
-                <div class="finding" 
+                <div class="finding type-{{ finding.type_class }}" 
                      data-severity="{{ finding.severity }}" 
-                     data-type="{{ finding.type }}"
+                     data-type="{{ finding.type_class }}"
                      data-file="{{ finding.file }}"
-                     data-content="{{ finding.title }} {{ finding.description }} {{ finding.file }} {{ finding.category }}">
+                     data-content="{{ finding.title }} {{ finding.description }} {{ finding.file }} {{ finding.category_cn }}">
                     
                     <div class="finding-header">
                         <div class="finding-title">
-                            <span class="type-tag type-{{ finding.type }}">{{ '静态' if finding.type == 'static' else '动态' }}</span>
+                            <span class="type-tag type-{{ finding.type_class }}">{{ finding.type_label }}</span>
                             {{ finding.title }}
                         </div>
                         <span class="severity-badge {{ finding.severity|lower }}">{{ finding.severity_label }}</span>
                     </div>
 
                     <div class="finding-meta">
-                        <span><b>类别:</b> {{ finding.category }}</span>
-                        <span><b>引擎:</b> {{ finding.analyzer }}</span>
+                        <span><b>分类:</b> {{ finding.category_cn }}</span>
+                        <span><b>引擎:</b> {{ finding.analyzer_cn }}</span>
                         {% if finding.file %}<span><b>文件:</b> {{ finding.file }}</span>{% endif %}
                         {% if finding.line %}<span><b>行号:</b> {{ finding.line }}</span>{% endif %}
                     </div>
 
                     <div class="finding-desc">{{ finding.description }}</div>
 
-                    {% if finding.type == 'dynamic' and finding.evidence %}
-                    <div class="finding-evidence"><b>运行时证据:</b><br>{{ finding.evidence }}</div>
+                    {% if finding.evidence %}
+                    <div class="finding-evidence"><b>证据/路径:</b><br>{{ finding.evidence }}</div>
                     {% endif %}
 
                     {% if finding.code_snippet %}
@@ -372,7 +433,7 @@ class ReportGenerator:
                     {% endif %}
 
                     <div class="recommendation">
-                        <span><b>修复方案:</b> {{ finding.recommendation }}</span>
+                        <span>💡 <b>响应建议:</b> {{ finding.recommendation }}</span>
                     </div>
                 </div>
                 {% endfor %}
